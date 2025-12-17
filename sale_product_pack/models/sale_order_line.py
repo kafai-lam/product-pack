@@ -47,12 +47,16 @@ class SaleOrderLine(models.Model):
             }
         )
 
+    @api.model
+    def _should_expand_pack(self, product):
+        return product and product.pack_ok and product.pack_type == "detailed"
+
     def expand_pack_line(self, write=False):
         self.ensure_one()
         # if we are using update_pricelist or checking out on ecommerce we
         # only want to update prices
         vals_list = []
-        if self.product_id.pack_ok and self.pack_type == "detailed":
+        if self._should_expand_pack(self.product_id):
             for subline in self.product_id.get_pack_lines():
                 vals = subline.get_sale_order_line_vals(self, self.order_id)
                 if write:
@@ -81,13 +85,13 @@ class SaleOrderLine(models.Model):
         """
         product_ids = [elem.get("product_id") for elem in vals_list]
         products = self.env["product.product"].browse(product_ids)
-        if any(p.pack_ok and p.pack_type != "non_detailed" for p in products):
+        if any(self._should_expand_pack(p) for p in products):
             res = self.browse()
             for elem in vals_list:
                 line = super().create([elem])
                 product = line.product_id
                 res += line
-                if product and product.pack_ok and product.pack_type != "non_detailed":
+                if self._should_expand_pack(product):
                     line.expand_pack_line()
             return res
         else:
@@ -140,9 +144,9 @@ class SaleOrderLine(models.Model):
         """
         price = super()._get_pricelist_price()
 
-        if self.product_id.product_tmpl_id._is_pack_to_be_handled():
+        if self.product_id._is_pack_to_be_handled():
             price = self.order_id.pricelist_id._get_product_price(
-                product=self.product_id.product_tmpl_id, quantity=1.0
+                product=self.product_id, quantity=1.0
             )
         return price
 
